@@ -1,10 +1,19 @@
-from fastapi import APIRouter, Header, Query, HTTPException, status, Request
+import logging
+
+from fastapi import APIRouter, Body, Header, Query, HTTPException, status, Request
+from pydantic import BaseModel
 
 from services.graph_api import get_user_profile, get_emails, get_chats, get_chat_messages
+from services.processor import fetch_and_process
 from models.response_models import DataResponse
 from utils.mongodb import get_db
 
 router = APIRouter(prefix="/data", tags=["data"])
+logger = logging.getLogger(__name__)
+
+
+class DataProcessRequest(BaseModel):
+    access_token: str | None = None
 
 
 def _resolve_access_token(authorization: str | None, access_token: str | None) -> str:
@@ -176,7 +185,9 @@ def sync_data(request: Request, authorization: str | None = Header(None), access
                                     "$set": {
                                         "_id": msg_id,
                                         "user_id": user_id,
+                                        "source": "teams",
                                         "chat_id": chat_id,
+                                        "message_id": msg_id,
                                         "from": msg.get("from"),
                                         "body": msg.get("body"),
                                         "created_datetime": msg.get("createdDateTime"),
@@ -210,3 +221,31 @@ def sync_data(request: Request, authorization: str | None = Header(None), access
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Sync failed: {str(exc)}",
         )
+
+
+@router.post("/process")
+def process_data(
+    request: Request,
+    payload: DataProcessRequest | None = Body(default=None),
+    authorization: str | None = Header(None),
+    access_token: str | None = Query(None),
+):
+    token = access_token or (payload.access_token if payload else None)
+    if not token:
+        token = request.cookies.get("work_intel_access_token")
+    if not token:
+        token = _resolve_access_token(authorization, access_token)
+
+    user = get_user_profile(token)
+    user_id = user.get("mail") or user.get("userPrincipalName") or user.get("id")
+    if not user_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unable to resolve user id")
+
+    try:
+        result = fetch_and_process(user_id=user_id, access_token=token)
+        return {"status": "processed", "documents_saved": result.get("documents_saved", 0)}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Data processing failed")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Data processing failed: {exc}")

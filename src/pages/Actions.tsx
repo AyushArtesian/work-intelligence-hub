@@ -8,34 +8,51 @@ const actionsList = [
     icon: Mail,
     title: "Summarize Emails",
     description: "Get a concise summary of all emails from today, highlighting key topics and action items.",
-    result: "**Today's Email Summary (24 emails)**\n\n📧 **High Priority:**\n• CFO requesting budget finalization by Friday\n• Client asked for revised timeline on Project Atlas\n\n📋 **Action Items:**\n• Respond to vendor proposal (deadline: tomorrow)\n• Review and approve marketing assets\n• Schedule follow-up with sales team\n\n📊 **Topics:** Budget (8), Project Atlas (5), Hiring (4), Marketing (3), Other (4)",
   },
   {
     id: "tasks",
     icon: CheckSquare,
     title: "Extract Tasks",
     description: "Scan all conversations and emails to identify and list actionable tasks with deadlines.",
-    result: "**Extracted Tasks (12 found)**\n\n🔴 **Urgent:**\n1. Finalize Q2 budget — Due: Friday\n2. Respond to vendor proposal — Due: Tomorrow\n3. Review client feedback on Project Atlas — Due: Wednesday\n\n🟡 **This Week:**\n4. Schedule 1-on-1 with new hire\n5. Update project roadmap\n6. Send weekly stakeholder update\n\n🟢 **Later:**\n7. Plan team offsite for April\n8. Research new analytics tools",
   },
   {
     id: "report",
     icon: FileText,
     title: "Generate Report",
     description: "Create a comprehensive daily report with communication analytics, insights, and recommendations.",
-    result: "**Daily Intelligence Report — March 30, 2026**\n\n📈 **Communication Stats:**\n• Emails: 24 received, 18 sent\n• Teams Messages: 45 sent, 62 received\n• Meetings: 4 attended (2.5 hours total)\n\n🎯 **Key Outcomes:**\n• Budget approved for Q3 marketing campaign\n• Engineering sprint planning completed\n• New hire onboarding documents signed\n\n💡 **Recommendations:**\n• Block focus time tomorrow morning — high meeting load expected\n• Follow up with Sarah on design review\n• Prepare talking points for Thursday's board meeting",
   },
 ];
 
 const Actions = () => {
   const [running, setRunning] = useState<string | null>(null);
   const [results, setResults] = useState<Record<string, string>>({});
+  const [error, setError] = useState<string | null>(null);
 
-  const runAction = (id: string, result: string) => {
+  const runAction = async (id: string) => {
+    setError(null);
     setRunning(id);
-    setTimeout(() => {
-      setResults((prev) => ({ ...prev, [id]: result }));
+    try {
+      const response = await fetch("http://localhost:8000/actions/run", {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ action_id: id }),
+      });
+
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload?.detail || "Action failed");
+      }
+
+      setResults((prev) => ({ ...prev, [id]: payload.result || "No output generated." }));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to run action";
+      setError(msg);
+    } finally {
       setRunning(null);
-    }, 2000);
+    }
   };
 
   return (
@@ -44,6 +61,12 @@ const Actions = () => {
         <h1 className="text-2xl font-bold text-foreground">Actions</h1>
         <p className="text-sm text-muted-foreground mt-1">Run AI-powered actions on your communications.</p>
       </motion.div>
+
+      {error && (
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          {error}
+        </motion.div>
+      )}
 
       <div className="space-y-4">
         {actionsList.map((action, i) => (
@@ -65,7 +88,7 @@ const Actions = () => {
                 </div>
               </div>
               <button
-                onClick={() => runAction(action.id, action.result)}
+                onClick={() => runAction(action.id)}
                 disabled={running === action.id}
                 className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-all hover:opacity-90 disabled:opacity-60 active:scale-95"
               >

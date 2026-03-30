@@ -17,15 +17,6 @@ const initialMessages: Message[] = [
   },
 ];
 
-const mockResponses: Record<string, Message> = {
-  default: {
-    id: 0,
-    role: "assistant",
-    content: "Based on your recent communications, here's what I found:\n\n**Key highlights:**\n• You have 3 unread emails from the marketing team about Q2 campaign\n• Sarah mentioned the design review deadline is tomorrow\n• The engineering standup notes indicate a blocker on the payment integration\n\nWould you like me to go deeper into any of these topics?",
-    sources: ["Email thread: Q2 Campaign Planning", "Teams: Design Review Channel", "Teams: Engineering Standup"],
-  },
-};
-
 const AIChat = () => {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [input, setInput] = useState("");
@@ -37,18 +28,51 @@ const AIChat = () => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isTyping]);
 
-  const sendMessage = () => {
+  const sendMessage = async () => {
     if (!input.trim()) return;
     const userMsg: Message = { id: Date.now(), role: "user", content: input };
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
     setIsTyping(true);
 
-    setTimeout(() => {
-      const resp = { ...mockResponses.default, id: Date.now() + 1 };
-      setMessages((prev) => [...prev, resp]);
+    try {
+      const conversationHistory = messages
+        .filter((msg) => msg.id !== 1) // Exclude initial greeting
+        .map((msg) => ({ role: msg.role, content: msg.content }));
+
+      const response = await fetch("/api/chat/send", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          message: input,
+          conversation_history: conversationHistory,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`API error: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      const assistantMsg: Message = {
+        id: Date.now() + 1,
+        role: "assistant",
+        content: data.message,
+      };
+      setMessages((prev) => [...prev, assistantMsg]);
+    } catch (error) {
+      console.error("Failed to send message:", error);
+      const errorMsg: Message = {
+        id: Date.now() + 1,
+        role: "assistant",
+        content: "Sorry, I encountered an error processing your message. Please try again.",
+      };
+      setMessages((prev) => [...prev, errorMsg]);
+    } finally {
       setIsTyping(false);
-    }, 1500);
+    }
   };
 
   return (

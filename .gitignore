@@ -24,3 +24,10 @@ dist-ssr
 *.sw?
 
 /backend/venv
+# Python
+**/__pycache__/
+**/*.py[cod]
+*.pyc
+*.pyo
+*.pyd
+.env

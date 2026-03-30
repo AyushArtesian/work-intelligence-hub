@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from routes import auth, data
+from routes import actions, auth, chat, data
 from utils.mongodb import init_mongo
 
 app = FastAPI(title="Work Intelligence Hub API", version="1.0")
@@ -22,6 +22,8 @@ def startup_event():
 
 app.include_router(auth.router)
 app.include_router(data.router)
+app.include_router(actions.router)
+app.include_router(chat.router)
 
 
 @app.get("/")

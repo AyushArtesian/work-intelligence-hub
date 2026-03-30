@@ -8,8 +8,12 @@ class Settings(BaseSettings):
     TENANT_ID: str
     REDIRECT_URI: str
     MONGODB_URI: AnyUrl
-    DATABASE_NAME: str = "work_intel"
+    DATABASE_NAME: str = "ai_work_assistant"
     FRONTEND_URL: str = "http://localhost:8080"
+    GEMINI_API_KEY: str | None = None
+    OPENAI_API_KEY: str | None = None
+    OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
+    GEMINI_EMBEDDING_MODEL: str = "text-embedding-004"
 
     class Config:
         env_file = ".env"
