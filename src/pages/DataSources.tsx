@@ -1,6 +1,6 @@
 import { RefreshCw, CheckCircle2, XCircle } from "lucide-react";
 import { motion } from "framer-motion";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 interface DataSource {
   name: string;
@@ -61,11 +61,32 @@ const DataSources = () => {
   const [syncing, setSyncing] = useState<string | null>(null);
   const [fetching, setFetching] = useState(false);
   const [processing, setProcessing] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authLoading, setAuthLoading] = useState(true);
+
+  useEffect(() => {
+    // Check if user is authenticated
+    fetch("/api/auth/me", {
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    })
+      .then((res) => {
+        if (res.ok) {
+          setIsAuthenticated(true);
+        } else {
+          setIsAuthenticated(false);
+        }
+      })
+      .catch(() => setIsAuthenticated(false))
+      .finally(() => setAuthLoading(false));
+  }, []);
 
   const handleFetch = async () => {
     setFetching(true);
     try {
-      const response = await fetch("http://localhost:8000/data/fetch", {
+      const response = await fetch("/api/data/fetch", {
         method: "POST",
         credentials: "include",
         headers: {
@@ -99,7 +120,7 @@ const DataSources = () => {
   const handleProcess = async () => {
     setProcessing(true);
     try {
-      const response = await fetch("http://localhost:8000/data/process", {
+      const response = await fetch("/api/data/process", {
         method: "POST",
         credentials: "include",
         headers: {
@@ -128,7 +149,7 @@ const DataSources = () => {
   const handleSync = async (sourceName: string) => {
     setSyncing(sourceName);
     try {
-      const response = await fetch("http://localhost:8000/data/sync", {
+      const response = await fetch("/api/data/sync", {
         method: "POST",
         credentials: "include",
         headers: {
@@ -138,6 +159,8 @@ const DataSources = () => {
 
       if (response.ok) {
         const result = await response.json();
+        const docsSaved = result.documents_saved || 0;
+        const docsIndexed = result.documents_indexed || 0;
         // Update last sync time
         setSources((prev) =>
           prev.map((s) =>
@@ -147,13 +170,14 @@ const DataSources = () => {
           )
         );
         console.log("Sync successful:", result);
+        alert(`Sync completed!\nDocuments saved: ${docsSaved}\nDocuments indexed: ${docsIndexed}`);
       } else {
-        console.error("Sync failed:", response.statusText);
-        alert("Failed to sync data. Check console for details.");
+        const error = await response.json();
+        throw new Error(error.detail || "Sync failed");
       }
     } catch (error) {
       console.error("Sync error:", error);
-      alert("Error syncing data");
+      alert(`Error syncing data: ${error instanceof Error ? error.message : "Unknown error"}`);
     } finally {
       setSyncing(null);
     }
@@ -166,7 +190,43 @@ const DataSources = () => {
         <p className="text-sm text-muted-foreground mt-1">Manage your connected services and data integrations.</p>
       </motion.div>
 
+      {/* Authentication Status */}
+      {authLoading ? (
+        <motion.div 
+          initial={{ opacity: 0, y: 12 }} 
+          animate={{ opacity: 1, y: 0 }}
+          className="glass-card p-4 border border-border bg-muted/50"
+        >
+          <p className="text-sm text-muted-foreground">Checking authentication...</p>
+        </motion.div>
+      ) : !isAuthenticated ? (
+        <motion.div 
+          initial={{ opacity: 0, y: 12 }} 
+          animate={{ opacity: 1, y: 0 }}
+          className="glass-card p-4 border border-red-500/30 bg-red-500/10"
+        >
+          <p className="text-sm font-medium text-red-600">⚠️ Not authenticated</p>
+          <p className="text-xs text-muted-foreground mt-1">Please log in first to access data sources.</p>
+          <a 
+            href="/login" 
+            className="inline-block mt-3 px-4 py-2 text-xs font-medium bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors"
+          >
+            Go to Login
+          </a>
+        </motion.div>
+      ) : (
+        <motion.div 
+          initial={{ opacity: 0, y: 12 }} 
+          animate={{ opacity: 1, y: 0 }}
+          className="glass-card p-4 border border-green-500/30 bg-green-500/10"
+        >
+          <p className="text-sm font-medium text-green-600">✓ Authenticated</p>
+          <p className="text-xs text-muted-foreground mt-1">Your session is active. You can now manage data sources.</p>
+        </motion.div>
+      )}
+
       {/* Pipeline Actions */}
+      {isAuthenticated && !authLoading && (
       <motion.div 
         initial={{ opacity: 0, y: 12 }} 
         animate={{ opacity: 1, y: 0 }}
@@ -193,55 +253,66 @@ const DataSources = () => {
           <span className="px-3 py-2 text-xs text-muted-foreground">→ Then sync your sources below</span>
         </div>
       </motion.div>
+      )}
 
       <div className="space-y-4">
-        {sources.map((source, i) => (
-          <motion.div
-            key={source.name}
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 + i * 0.1 }}
-            className="glass-card p-5 hover-lift"
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-secondary">
-                  {source.icon}
-                </div>
-                <div>
-                  <h3 className="text-sm font-semibold text-foreground">{source.name}</h3>
-                  <p className="text-xs text-muted-foreground mt-0.5">{source.description}</p>
-                  <div className="flex items-center gap-1.5 mt-2">
-                    {source.connected ? (
-                      <>
-                        <CheckCircle2 className="h-3.5 w-3.5 text-success" />
-                        <span className="text-xs text-success font-medium">Connected</span>
-                        <span className="text-xs text-muted-foreground ml-2">Last synced {source.lastSync}</span>
-                      </>
-                    ) : (
-                      <>
-                        <XCircle className="h-3.5 w-3.5 text-muted-foreground" />
-                        <span className="text-xs text-muted-foreground">Not connected</span>
-                      </>
-                    )}
+        {isAuthenticated && !authLoading ? (
+          sources.map((source, i) => (
+            <motion.div
+              key={source.name}
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1 + i * 0.1 }}
+              className="glass-card p-5 hover-lift"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-secondary">
+                    {source.icon}
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-semibold text-foreground">{source.name}</h3>
+                    <p className="text-xs text-muted-foreground mt-0.5">{source.description}</p>
+                    <div className="flex items-center gap-1.5 mt-2">
+                      {source.connected ? (
+                        <>
+                          <CheckCircle2 className="h-3.5 w-3.5 text-success" />
+                          <span className="text-xs text-success font-medium">Connected</span>
+                          <span className="text-xs text-muted-foreground ml-2">Last synced {source.lastSync}</span>
+                        </>
+                      ) : (
+                        <>
+                          <XCircle className="h-3.5 w-3.5 text-muted-foreground" />
+                          <span className="text-xs text-muted-foreground">Not connected</span>
+                        </>
+                      )}
+                    </div>
                   </div>
                 </div>
+                <button
+                  onClick={() => source.connected && handleSync(source.name)}
+                  disabled={syncing === source.name || !source.connected}
+                  className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed ${
+                    source.connected
+                      ? "border border-border text-foreground hover:bg-accent"
+                      : "bg-muted text-muted-foreground"
+                  }`}
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${syncing === source.name ? "animate-spin" : ""}`} />
+                  {syncing === source.name ? "Syncing..." : source.connected ? "Sync" : "Connect"}
+                </button>
               </div>
-              <button
-                onClick={() => source.connected && handleSync(source.name)}
-                disabled={syncing === source.name || !source.connected}
-                className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed ${
-                  source.connected
-                    ? "border border-border text-foreground hover:bg-accent"
-                    : "bg-muted text-muted-foreground"
-                }`}
-              >
-                <RefreshCw className={`h-3.5 w-3.5 ${syncing === source.name ? "animate-spin" : ""}`} />
-                {syncing === source.name ? "Syncing..." : source.connected ? "Sync" : "Connect"}
-              </button>
-            </div>
+            </motion.div>
+          ))
+        ) : (
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="glass-card p-8 text-center"
+          >
+            <p className="text-sm text-muted-foreground">Please log in to view data sources.</p>
           </motion.div>
-        ))}
+        )}
       </div>
     </div>
   );

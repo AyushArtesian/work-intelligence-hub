@@ -20,7 +20,7 @@ const AuthGuard = ({ children }: { children: React.ReactNode }) => {
   const [status, setStatus] = useState<"loading" | "authorized" | "unauthorized">("loading");
 
   useEffect(() => {
-    fetch("http://localhost:8000/auth/me", {
+    fetch("/api/auth/me", {
       credentials: "include",
       headers: {
         "Content-Type": "application/json",

@@ -18,7 +18,7 @@ export function TopNavbar() {
   useEffect(() => {
     const fetchUser = async () => {
       try {
-        const response = await fetch("http://localhost:8000/auth/me", {
+        const response = await fetch("/api/auth/me", {
           credentials: "include",
           headers: {
             "Content-Type": "application/json",

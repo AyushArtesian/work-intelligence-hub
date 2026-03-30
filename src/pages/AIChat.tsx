@@ -75,10 +75,12 @@ const AIChat = () => {
 
       const data = await response.json();
       const sourceLabels = Array.isArray(data.sources)
-        ? data.sources.map((s: { source?: string; content?: string }) => {
+        ? data.sources.map((s: { source?: string; content?: string; sender?: string; timestamp?: string }) => {
             const source = s?.source || "unknown";
+            const sender = s?.sender ? `from ${s.sender}` : "";
             const snippet = (s?.content || "").trim();
-            return snippet ? `${source}: ${snippet}` : source;
+            const parts = [source, sender].filter(Boolean).join(" ");
+            return snippet ? `${parts}: ${snippet}` : parts;
           })
         : undefined;
       const assistantMsg: Message = {

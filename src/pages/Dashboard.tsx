@@ -41,7 +41,7 @@ const Dashboard = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const userResponse = await fetch("http://localhost:8000/auth/me", {
+        const userResponse = await fetch("/api/auth/me", {
           credentials: "include",
           headers: {
             "Content-Type": "application/json",
@@ -52,7 +52,8 @@ const Dashboard = () => {
           setUser(userData);
         }
 
-        const dataResponse = await fetch("http://localhost:8000/data/fetch", {
+        const dataResponse = await fetch("/api/data/fetch", {
+          method: "POST",
           credentials: "include",
           headers: {
             "Content-Type": "application/json",

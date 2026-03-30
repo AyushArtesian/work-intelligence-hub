@@ -20,7 +20,7 @@ const SettingsPage = () => {
   useEffect(() => {
     const fetchUser = async () => {
       try {
-        const response = await fetch("http://localhost:8000/auth/me", {
+        const response = await fetch("/api/auth/me", {
           credentials: "include",
           headers: {
             "Content-Type": "application/json",
@@ -42,7 +42,7 @@ const SettingsPage = () => {
 
   const handleLogout = async () => {
     try {
-      await fetch("http://localhost:8000/auth/logout", {
+      await fetch("/api/auth/logout", {
         method: "POST",
         credentials: "include",
       });

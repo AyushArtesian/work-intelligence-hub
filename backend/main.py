@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from routes import actions, auth, chat, data
 from utils.mongodb import init_mongo
 
-app = FastAPI(title="Work Intelligence Hub API", version="1.0")
+app = FastAPI(title="WorkPulse API", version="1.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -29,7 +29,7 @@ app.include_router(chat.router)
 
 @app.get("/")
 def root():
-    return {"message": "Work Intelligence Hub FastAPI backend is running"}
+    return {"message": "WorkPulse backend is running"}
 
 
 @app.get("/health")

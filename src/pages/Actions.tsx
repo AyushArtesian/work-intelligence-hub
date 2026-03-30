@@ -82,7 +82,7 @@ const Actions = () => {
     setError(null);
     setRunning(id);
     try {
-      const response = await fetch("http://localhost:8000/actions/run", {
+      const response = await fetch("/api/actions/run", {
         method: "POST",
         credentials: "include",
         headers: {

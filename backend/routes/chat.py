@@ -33,6 +33,7 @@ class SourceChunk(BaseModel):
     content: str
     timestamp: str | None = None
     source: str
+    sender: str | None = None
 
 
 class RAGChatResponse(BaseModel):
@@ -153,11 +154,18 @@ def rag_chat(
         content = (doc.get("content") or "").strip()
         if len(content) > 280:
             content = f"{content[:277]}..."
+        
+        # Extract sender from metadata participants
+        metadata = doc.get("metadata", {})
+        participants = metadata.get("participants", [])
+        sender = participants[0] if participants else None
+        
         source_docs.append(
             SourceChunk(
                 content=content,
                 timestamp=str(doc.get("timestamp")) if doc.get("timestamp") is not None else None,
                 source=doc.get("source", "unknown"),
+                sender=sender,
             )
         )
 

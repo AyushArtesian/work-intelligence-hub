@@ -25,7 +25,7 @@ const Login = () => {
 
         <div className="glass-card p-6">
           <a
-            href="http://localhost:8000/auth/login"
+            href="/api/auth/login"
             className="flex w-full items-center justify-center gap-3 rounded-lg bg-foreground px-4 py-3 text-sm font-medium text-background transition-all hover:opacity-90 active:scale-[0.98]"
           >
             <svg className="h-5 w-5" viewBox="0 0 23 23" fill="none">
@@ -55,7 +55,7 @@ const Login = () => {
               className="w-full rounded-lg border border-input bg-background px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/20"
             />
             <a
-              href="http://localhost:8000/auth/login"
+              href="/api/auth/login"
               className="w-full inline-flex items-center justify-center rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-all hover:opacity-90 active:scale-[0.98]"
             >
               Sign In

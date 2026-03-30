@@ -1,4 +1,6 @@
-# Work Intelligence Hub
+# WorkPulse
+
+Your AI-powered work assistant for intelligent email, chat, and task management.
 
 A comprehensive AI Work Intelligence Assistant that transforms emails, chats, and tasks into actionable insights using retrieval-augmented generation (RAG), embeddings, and agentic AI.
 
@@ -43,24 +45,25 @@ Backend (FastAPI + Python 3.13)
 - Cookie-based session management with `work_intel_access_token`
 - Per-user data isolation enforced on all protected endpoints
 
-### 2. Data Pipeline (3-Phase Approach)
+### 2. Data Pipeline (End-to-End)
 
-**Phase 1: Fetch** — `POST /data/fetch`
-- Retrieves raw data from Microsoft Graph
-- Returns: emails, chats, and messages
+**Fetch** — `POST /data/fetch`
+- Retrieves raw emails and chats from Microsoft Graph
+- Returns: user profile, emails, chats, messages
 
-**Phase 2: Sync** — `POST /data/sync`
-- Stores data in MongoDB collections (emails, chats, messages)
-- Deduplication via upsert
-- Returns counts: emails_synced, chats_synced, messages_synced
-
-**Phase 3: Process & Embed** — `POST /data/process`
-- Text cleaning (HTML removal, normalization)
+**Sync & Process** — `POST /data/sync` (Complete Pipeline)
+- Fetches data from Microsoft Graph
+- Text cleaning and normalization
 - Word-boundary chunking (300 chars per chunk)
 - Embedding generation (OpenAI → Gemini → local fallback)
 - Vector indexing into FAISS
-- Stores chunks in MongoDB `messages` collection
+- Stores processed chunks in MongoDB
+- Includes deduplication and conflict resolution
 - Returns: documents_saved, documents_indexed
+
+**Direct Process** — `POST /data/process` (Alternative)
+- Same pipeline as /data/sync (for advanced workflows)
+- Useful if you want separate fetch and process steps
 
 ### 3. RAG-Powered Chat
 - **`POST /chat`** — Query your indexed work data
@@ -369,7 +372,7 @@ db.messages.dropIndex("uniq_user_source_message")
 ## Project Structure
 
 ```
-work-intelligence-hub/
+workpulse/
 ├── backend/
 │   ├── routes/ (auth, chat, actions, data)
 │   ├── services/ (llm, rag, embedding, processor, vector_store, graph_api)
