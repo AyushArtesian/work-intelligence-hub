@@ -1,5 +1,17 @@
 import { Mail, MessageSquare, AlertCircle, Zap, FileText, CheckSquare, BarChart3, ArrowRight } from "lucide-react";
 import { motion } from "framer-motion";
+import { useEffect, useState } from "react";
+
+interface UserProfile {
+  displayName: string;
+  mail: string;
+}
+
+interface GraphData {
+  emails: any[];
+  chats: any[];
+  messages: any[];
+}
 
 const fadeIn = (delay: number) => ({
   initial: { opacity: 0, y: 12 },
@@ -22,33 +34,76 @@ const StatCard = ({ icon: Icon, label, value, color }: { icon: any; label: strin
 );
 
 const Dashboard = () => {
+  const [user, setUser] = useState<UserProfile | null>(null);
+  const [data, setData] = useState<GraphData | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const userResponse = await fetch("http://localhost:8000/auth/me", {
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        });
+        if (userResponse.ok) {
+          const userData = await userResponse.json();
+          setUser(userData);
+        }
+
+        const dataResponse = await fetch("http://localhost:8000/data/fetch", {
+          credentials: "include",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        });
+        if (dataResponse.ok) {
+          const graphData = await dataResponse.json();
+          setData(graphData);
+        }
+      } catch (error) {
+        console.error("Failed to fetch data:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
+
+  const firstName = user?.displayName?.split(" ")[0] || "User";
+  const emailCount = data?.emails?.length || 0;
+  const chatCount = data?.chats?.length || 0;
+  const messageCount = data?.messages?.reduce((acc, chat) => acc + (chat.messages?.length || 0), 0) || 0;
+
   const insights = [
-    "Hiring discussion with Sarah needs follow-up by Tuesday",
-    "Q2 budget approval is pending — 3 stakeholders awaiting response",
-    "Team standup notes suggest blockers on the API migration",
-    "Client feedback on the proposal was overall positive",
+    `You have ${emailCount} emails in your inbox`,
+    `Connected to ${chatCount} Teams chats`,
+    `${messageCount} messages across chats`,
+    "Synced with Microsoft Graph API",
   ];
 
   const actions = [
-    { title: "Finalize budget by Friday", source: "Email from CFO", urgent: true },
-    { title: "Review design mockups", source: "Teams chat with Design", urgent: false },
-    { title: "Send project update to stakeholders", source: "Weekly recap", urgent: true },
-    { title: "Schedule 1-on-1 with new hire", source: "HR onboarding thread", urgent: false },
+    { title: "View all emails", source: "Outlook", urgent: emailCount > 10 },
+    { title: "Review Teams conversations", source: "Teams chats", urgent: chatCount > 5 },
+    { title: "Check message activity", source: "Chat messages", urgent: false },
+    { title: "Configure data sources", source: "Settings", urgent: false },
   ];
 
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-6">
       <motion.div {...fadeIn(0)}>
-        <h1 className="text-2xl font-bold text-foreground">Good morning, John</h1>
+        <h1 className="text-2xl font-bold text-foreground">Good morning, {firstName}</h1>
         <p className="text-sm text-muted-foreground mt-1">Here's your work intelligence summary for today.</p>
       </motion.div>
 
       {/* Stats */}
       <motion.div {...fadeIn(0.1)} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard icon={Mail} label="Emails received" value="24" color="bg-primary/10 text-primary" />
-        <StatCard icon={MessageSquare} label="Important chats" value="8" color="bg-success/10 text-success" />
-        <StatCard icon={AlertCircle} label="Missed messages" value="3" color="bg-warning/10 text-warning" />
-        <StatCard icon={CheckSquare} label="Pending tasks" value="6" color="bg-destructive/10 text-destructive" />
+        <StatCard icon={Mail} label="Emails received" value={emailCount.toString()} color="bg-primary/10 text-primary" />
+        <StatCard icon={MessageSquare} label="Teams chats" value={chatCount.toString()} color="bg-success/10 text-success" />
+        <StatCard icon={AlertCircle} label="Chat messages" value={messageCount.toString()} color="bg-warning/10 text-warning" />
+        <StatCard icon={CheckSquare} label="Data sources" value="1" color="bg-destructive/10 text-destructive" />
       </motion.div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -83,7 +138,7 @@ const Dashboard = () => {
                 </div>
                 {action.urgent && (
                   <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-destructive/10 text-destructive">
-                    Urgent
+                    Active
                   </span>
                 )}
               </li>

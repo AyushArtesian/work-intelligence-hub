@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, Request
 from fastapi.responses import RedirectResponse, JSONResponse
 
 from services.microsoft_auth import build_auth_url, exchange_code_for_token
@@ -78,17 +78,31 @@ def callback(code: str | None = None, state: str | None = None):
 
 
 @router.get("/me")
-def me(access_token: str | None = None, work_intel_access_token: str | None = None):
+def me(request: Request, access_token: str | None = None):
     """Return currently authenticated user by token from cookie or query."""
-    token = access_token or work_intel_access_token
-    if token is None:
+    # Try query param first, then cookie, then Authorization header
+    token = access_token
+    if not token:
+        token = request.cookies.get("work_intel_access_token")
+    if not token:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+    
+    if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated",
         )
 
-    user_profile = get_user_profile(token)
-    return user_profile
+    try:
+        user_profile = get_user_profile(token)
+        return user_profile
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Invalid or expired token: {str(exc)}",
+        )
 
 
 @router.post("/logout")
