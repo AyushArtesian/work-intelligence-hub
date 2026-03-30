@@ -76,6 +76,9 @@ const Dashboard = () => {
   const emailCount = data?.emails?.length || 0;
   const chatCount = data?.chats?.length || 0;
   const messageCount = data?.messages?.reduce((acc, chat) => acc + (chat.messages?.length || 0), 0) || 0;
+  
+  // Count connected data sources dynamically
+  const connectedSources = (emailCount > 0 ? 1 : 0) + (chatCount > 0 ? 1 : 0);
 
   const insights = [
     `You have ${emailCount} emails in your inbox`,
@@ -103,7 +106,7 @@ const Dashboard = () => {
         <StatCard icon={Mail} label="Emails received" value={emailCount.toString()} color="bg-primary/10 text-primary" />
         <StatCard icon={MessageSquare} label="Teams chats" value={chatCount.toString()} color="bg-success/10 text-success" />
         <StatCard icon={AlertCircle} label="Chat messages" value={messageCount.toString()} color="bg-warning/10 text-warning" />
-        <StatCard icon={CheckSquare} label="Data sources" value="1" color="bg-destructive/10 text-destructive" />
+        <StatCard icon={CheckSquare} label="Data sources" value={connectedSources.toString()} color="bg-destructive/10 text-destructive" />
       </motion.div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
