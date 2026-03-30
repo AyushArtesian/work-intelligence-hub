@@ -24,8 +24,8 @@ const Login = () => {
         </div>
 
         <div className="glass-card p-6">
-          <button
-            onClick={() => navigate("/dashboard")}
+          <a
+            href="http://localhost:8000/auth/login"
             className="flex w-full items-center justify-center gap-3 rounded-lg bg-foreground px-4 py-3 text-sm font-medium text-background transition-all hover:opacity-90 active:scale-[0.98]"
           >
             <svg className="h-5 w-5" viewBox="0 0 23 23" fill="none">
@@ -35,7 +35,7 @@ const Login = () => {
               <path d="M12 12h10v10H12z" fill="#FFB900" />
             </svg>
             Continue with Microsoft
-          </button>
+          </a>
 
           <div className="mt-4 flex items-center gap-3">
             <div className="h-px flex-1 bg-border" />
@@ -54,12 +54,12 @@ const Login = () => {
               placeholder="Password"
               className="w-full rounded-lg border border-input bg-background px-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/20"
             />
-            <button
-              onClick={() => navigate("/dashboard")}
-              className="w-full rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-all hover:opacity-90 active:scale-[0.98]"
+            <a
+              href="http://localhost:8000/auth/login"
+              className="w-full inline-flex items-center justify-center rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground transition-all hover:opacity-90 active:scale-[0.98]"
             >
               Sign In
-            </button>
+            </a>
           </div>
         </div>
 
