@@ -23,6 +23,7 @@ def startup_event():
 app.include_router(auth.router)
 app.include_router(data.router)
 app.include_router(actions.router)
+app.include_router(actions.agent_router)
 app.include_router(chat.router)
 
 

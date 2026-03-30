@@ -29,7 +29,7 @@ def _resolve_access_token(authorization: str | None, access_token: str | None) -
     )
 
 
-@router.get("/fetch", response_model=DataResponse)
+@router.post("/fetch", response_model=DataResponse)
 def fetch_data(
     request: Request, authorization: str | None = Header(None), access_token: str | None = Query(None)
 ):
@@ -243,7 +243,11 @@ def process_data(
 
     try:
         result = fetch_and_process(user_id=user_id, access_token=token)
-        return {"status": "processed", "documents_saved": result.get("documents_saved", 0)}
+        return {
+            "status": "processed",
+            "documents_saved": result.get("documents_saved", 0),
+            "documents_indexed": result.get("documents_indexed", 0),
+        }
     except HTTPException:
         raise
     except Exception as exc:

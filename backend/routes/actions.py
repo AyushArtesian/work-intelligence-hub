@@ -1,17 +1,22 @@
 from fastapi import APIRouter, Header, HTTPException, Query, Request, status
 from pydantic import BaseModel
-import httpx
 
-from services.gemini_actions import generate_action_output
-from services.graph_api import get_chats, get_chat_messages, get_emails, get_user_profile
-from utils.mongodb import get_db
+from services.actions import extract_tasks, generate_daily_report, summarize_emails
+from services.agent import run_agent
+from services.graph_api import get_user_profile
 from utils.settings import settings
 
 router = APIRouter(prefix="/actions", tags=["actions"])
+agent_router = APIRouter(tags=["agent"])
 
 
 class ActionRunRequest(BaseModel):
     action_id: str
+
+
+class AgentRequest(BaseModel):
+    query: str
+    user_id: str
 
 
 def _resolve_token(request: Request, authorization: str | None, access_token: str | None) -> str:
@@ -27,18 +32,12 @@ def _resolve_token(request: Request, authorization: str | None, access_token: st
 
 @router.get("/models")
 async def list_models():
-    if not settings.GEMINI_API_KEY:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="GEMINI_API_KEY is missing")
-
-    url = f"https://generativelanguage.googleapis.com/v1/models?key={settings.GEMINI_API_KEY}"
-    try:
-        response = httpx.get(url, timeout=15.0)
-        response.raise_for_status()
-        return response.json()
-    except httpx.HTTPStatusError as exc:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Unable to list models: {exc.response.text}")
-    except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to list models: {str(exc)}")
+    model = getattr(settings, "GROQ_MODEL", "qwen/qwen3-32b")
+    return {
+        "provider": "groq",
+        "model": model,
+        "status": "configured" if getattr(settings, "GROQ_API_KEY", None) else "missing_api_key",
+    }
 
 
 @router.post("/run")
@@ -51,43 +50,45 @@ def run_action(
     token = _resolve_token(request, authorization, access_token)
 
     user = get_user_profile(token)
-    user_id = user.get("id") or user.get("userPrincipalName")
+    user_id = user.get("mail") or user.get("userPrincipalName") or user.get("id")
+    if not user_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unable to resolve user id")
 
-    emails_items: list[dict] = []
-    chats_items: list[dict] = []
-    messages_items: list[dict] = []
-
-    db = get_db()
-    if db is not None and user_id:
-        emails_items = list(db.emails.find({"user_id": user_id}).sort("received_datetime", -1).limit(40))
-        chats_items = list(db.chats.find({"user_id": user_id}).limit(30))
-        messages_items = list(db.messages.find({"user_id": user_id}).sort("created_datetime", -1).limit(80))
-
-    # Fallback to live Graph data if DB is empty
-    if not emails_items and not chats_items and not messages_items:
-        emails_items = get_emails(token).get("value", [])
-        chats_items = get_chats(token).get("value", [])
-        for chat in chats_items[:8]:
-            chat_id = chat.get("id")
-            if not chat_id:
-                continue
-            messages_items.extend(get_chat_messages(token, chat_id).get("value", []))
-
-    output = generate_action_output(
-        action_id=payload.action_id,
-        user_profile=user,
-        emails=emails_items,
-        chats=chats_items,
-        messages=messages_items,
-    )
+    if payload.action_id == "summarize":
+        output = summarize_emails(user_id)
+    elif payload.action_id == "tasks":
+        output = extract_tasks(user_id)
+    elif payload.action_id == "report":
+        output = generate_daily_report(user_id)
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unsupported action_id. Use summarize, tasks, or report.",
+        )
 
     return {
         "status": "success",
         "action_id": payload.action_id,
         "result": output,
-        "stats": {
-            "emails": len(emails_items),
-            "chats": len(chats_items),
-            "messages": len(messages_items),
-        },
     }
+
+
+@agent_router.post("/agent")
+def run_agent_route(
+    payload: AgentRequest,
+    request: Request,
+    authorization: str | None = Header(None),
+    access_token: str | None = Query(None),
+):
+    token = _resolve_token(request, authorization, access_token)
+    user = get_user_profile(token)
+    resolved_user_id = user.get("mail") or user.get("userPrincipalName") or user.get("id")
+
+    if not resolved_user_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unable to resolve user id")
+
+    if payload.user_id != resolved_user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied for requested user_id")
+
+    result = run_agent(query=payload.query, user_id=resolved_user_id)
+    return result

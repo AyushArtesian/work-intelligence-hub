@@ -6,3 +6,4 @@ pymongo
 pydantic
 numpy
 faiss-cpu
+groq

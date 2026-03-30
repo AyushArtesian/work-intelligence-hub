@@ -1,57 +1,228 @@
-# Work Intelligence Hub - Backend
+# Work Intelligence Hub
 
-A FastAPI backend for a Microsoft Graph AI Work Intelligence assistant.
+A comprehensive AI Work Intelligence Assistant that transforms emails, chats, and tasks into actionable insights using retrieval-augmented generation (RAG), embeddings, and agentic AI.
 
-- User login with Azure AD OAuth (Microsoft identity platform)
-- Fetch Outlook emails, Teams chats, and chat messages via Microsoft Graph
-- MongoDB (Atlas) storage for user tokens and fetch history
-- CORS-enabled API for React frontend integration
-- Simple auth guard and pre-built health endpoints
-
-## Features
-
-1. **Microsoft Authentication**
-   - `GET /auth/login` redirects to Microsoft login
-   - `GET /auth/callback` receives authorization code, exchanges for tokens
-   - Stores user profile and tokens in `users` collection
-   - Sets session cookie `work_intel_access_token`
-   - `GET /auth/me` returns current user profile (requires login)
-   - `POST /auth/logout` clears cookie
-
-2. **Graph Data Fetching**
-   - `GET /data/fetch` returns:
-     - `user`: profile object
-     - `emails`: `me/messages`
-     - `chats`: `me/chats`
-     - `messages`: first 1-2 chat messages per chat
-   - Data fetch is token-based (use header/query token or cookie)
-   - Writes fetch attempt to `fetch_history` collection
-
-3. **MongoDB Integration**
-   - `utils/mongodb.py` for DB connect + ping
-   - `backend/.env` config for `MONGODB_URI`, `DATABASE_NAME`
-   - robust startup behavior with warning if Mongo is unavailable
-
-4. **Health Endpoints**
-   - `GET /health` => `{"status":"ok"}`
-   - `GET /health/db` => `{"status":"db_available"}` or `db_unavailable`
-
-5. **Frontend Guard**
-   - frontend `AuthGuard` checks `/auth/me` via cookie to protect `/dashboard`
+**Key Capabilities:**
+- 📧 **Email & Chat Sync**: Fetch from Microsoft Outlook & Teams via Graph API
+- 🧠 **RAG-Powered Chat**: Ask questions about your work data with source citations
+- ⚡ **AI Actions**: Summarize emails, extract tasks, generate daily reports
+- 🔍 **Vector Search**: FAISS-based semantic search with embeddings
+- 🔐 **Secure & Isolated**: Per-user data isolation, OAuth2 authentication
+- 🤖 **LLM Agnostic**: Groq/Qwen primary, fallback to OpenAI/Gemini for embeddings
 
 ## Architecture
 
-- **Backend**: Python + FastAPI
-- **Database**: MongoDB Atlas
-- **Auth**: Microsoft Identity Platform (Azure AD) OAuth2
-- **Graph API**: https://graph.microsoft.com/v1.0
-- **Frontend**: React + Vite (separate workspace)
+```
+Frontend (React + Vite) ──┐
+                          │
+                    localhost:8080
+                          │
+                          ▼
+Backend (FastAPI + Python 3.13)
+    ├─ Auth Layer (Microsoft OAuth)
+    ├─ Data Pipeline (fetch → process → embed → index)
+    ├─ RAG Engine (query embedding + FAISS + Mongo + LLM)
+    ├─ Action Engine (intent detection + task extraction)
+    └─ Chat Endpoints (data-grounded + unread counts)
+        │
+        ├─ MongoDB (messages, users, history)
+        ├─ FAISS (in-memory vector store)
+        ├─ Microsoft Graph (Outlook, Teams API)
+        ├─ Groq (Qwen model for generation)
+        └─ OpenAI/Gemini (embeddings fallback)
+```
+
+## Features
+
+### 1. Authentication & Authorization
+- **OAuth 2.0** with Microsoft Identity Platform (Azure AD)  
+- `POST /auth/login` → Redirect to Microsoft consent screen
+- `GET /auth/callback` → Exchange auth code for tokens
+- `GET /auth/me` → Get current user profile (token-validated)
+- `POST /auth/logout` → Clear session
+- Cookie-based session management with `work_intel_access_token`
+- Per-user data isolation enforced on all protected endpoints
+
+### 2. Data Pipeline (3-Phase Approach)
+
+**Phase 1: Fetch** — `POST /data/fetch`
+- Retrieves raw data from Microsoft Graph
+- Returns: emails, chats, and messages
+
+**Phase 2: Sync** — `POST /data/sync`
+- Stores data in MongoDB collections (emails, chats, messages)
+- Deduplication via upsert
+- Returns counts: emails_synced, chats_synced, messages_synced
+
+**Phase 3: Process & Embed** — `POST /data/process`
+- Text cleaning (HTML removal, normalization)
+- Word-boundary chunking (300 chars per chunk)
+- Embedding generation (OpenAI → Gemini → local fallback)
+- Vector indexing into FAISS
+- Stores chunks in MongoDB `messages` collection
+- Returns: documents_saved, documents_indexed
+
+### 3. RAG-Powered Chat
+- **`POST /chat`** — Query your indexed work data
+  - Embeds query using same provider as training data
+  - Searches FAISS for top-5 similar chunks
+  - Fetches full documents from MongoDB
+  - Generates response using Groq/Qwen
+  - Returns: answer + source citations
+  - **Special**: Detects "unread mail" queries → fetches live count from Graph
+
+### 4. AI Actions (Agentic System)
+- **Summarize Emails** — Overview, highlights, risks, next steps
+- **Extract Tasks** — JSON array of actionable tasks with deadlines
+- **Generate Daily Report** — Executive summary + priorities + blockers
+- **Intent Detection** — Routes user queries to appropriate action  
+- **Multi-turn Agent** — Handles conversation routing via `/agent`
+
+### 5. LLM Services
+- **Primary**: Groq API with Qwen model (`qwen/qwen3-32b`)
+- **Methods**:
+  - `generate_text()` → Single completion
+  - `generate_json()` → Structured output with auto-retry
+- Configuration via `GROQ_API_KEY` + `GROQ_MODEL`
+
+### 6. Embedding Strategy (Multi-Tier)
+- **Tier 1**: OpenAI `text-embedding-3-small` 
+- **Tier 2**: Gemini `text-embedding-004`
+- **Tier 3**: Local SHA256-based fallback (256-dim)
+- Graceful fallthrough if higher tier fails
+
+### 7. Vector Store
+- **FAISS** in-memory index with doc_id mapping
+- Fallback to cosine similarity if FAISS unavailable
+- Lazy re-indexing on first empty query (auto-hydration)
+
+### 8. Health & Monitoring
+- `GET /health` → Service status
+- `GET /health/db` → Database connectivity
+- `GET /actions/models` → Active LLM provider info
+
+---
+
+## Setup & Installation
+
+### Prerequisites
+- Python 3.13+
+- MongoDB Atlas cluster (or local MongoDB)
+- Microsoft Azure AD tenant + app registration
+- Groq API key (+ optional OpenAI, Gemini for fallbacks)
+- Node.js 18+ (for frontend)
+
+### Backend Setup
+
+```bash
+cd backend
+python -m venv venv
+source venv/Scripts/activate  # Windows: .\venv\Scripts\activate
+
+pip install -r requirements.txt
+cp .env.example .env  # Edit with your credentials
+```
+
+### Frontend Setup
+
+```bash
+cd ..  # Return to root
+npm install
+npm run dev  # Starts on localhost:8080
+```
+
+### Required Environment Variables
+
+```ini
+# Microsoft Azure AD
+AZURE_CLIENT_ID=your_client_id
+AZURE_CLIENT_SECRET=your_client_secret
+AZURE_TENANT_ID=your_tenant_id
+REDIRECT_URI=http://localhost:8000/auth/callback
+
+# MongoDB
+MONGODB_URI=mongodb+srv://user:password@cluster.mongodb.net/
+DATABASE_NAME=ai_work_assistant
+
+# LLM - Groq (Primary)
+GROQ_API_KEY=your_groq_key
+GROQ_MODEL=qwen/qwen3-32b
+
+# Embeddings - OpenAI (Fallback)
+OPENAI_API_KEY=sk-...
+OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+
+# Embeddings - Gemini (Fallback)
+GEMINI_API_KEY=...
+GEMINI_EMBEDDING_MODEL=text-embedding-004
+```
+
+### Azure AD Configuration
+
+In Azure Portal:
+1. Register new app
+2. Add **Microsoft Graph** delegated permissions:
+   - `User.Read` (required)
+   - `Mail.Read` (for emails)
+   - `Chat.Read` (for Teams chats)
+   - `ChatMessage.Read` (for messages)
+3. Grant admin consent
+4. Create client secret
+5. Add Redirect URI: `http://localhost:8000/auth/callback`
+
+### Run Services
+
+```bash
+# Terminal 1 - Backend
+cd backend
+.\venv\Scripts\activate
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
+
+# Terminal 2 - Frontend
+npm run dev
+```
+
+Visit: **http://localhost:8080**
+
+---
+
+## Usage Workflow
+
+### 1. Authenticate
+- Go to http://localhost:8080
+- Click "Continue with Microsoft"
+- Grant consent for Mail.Read, Chat.Read scopes
+
+### 2. Sync Your Data
+Go to **Data Sources** tab:
+- Click **"1. Fetch Data"** → Get raw emails/chats from Graph
+- Click **"2. Process & Index"** → Chunk, embed, and index into Mongo + FAISS
+- Click **"Sync"** → Incremental updates (optional)
+
+### 3. Ask Chat Questions
+Go to **AI Chat** tab and ask:
+- "How many unread mails do I have?"
+- "Summarize this week's key discussions"
+- "What tasks are pending?"
+- Responses include source citations
+
+### 4. Run AI Actions
+Go to **Actions** tab and click:
+- **Summarize Emails** → Overview + highlights + risks + next steps
+- **Extract Tasks** → Numbered tasks with deadlines
+- **Generate Report** → Executive summary + priorities + blockers
+
+### 5. View Dashboard
+- Email & chat counts
+- Quick action cards
+- Recent activity
+- Data sync status
 
 ## Quickstart
 
 ### Prerequisites
 
-- Python 3.11+ (`python --version`)
+- Python 3.13+ (`python --version`)
 - Node.js + npm (for frontend)
 - MongoDB Atlas cluster
 - Azure AD app registration with Graph permissions
@@ -136,29 +307,97 @@ npm run dev
 - Expected behavior: redirect to Microsoft login.
 - If it doesn’t continue to callback, verify Azure app `Redirect URI` and permission consent.
 
-## Code structure
+## API Reference
 
-- `main.py` – app init, routers, CORS, startup
-- `routes/auth.py` – OAuth, callback, `me`, logout
-- `routes/data.py` – data fetch endpoint
-- `services/microsoft_auth.py` – auth URL + token exchange
-- `services/graph_api.py` – Microsoft Graph wrapper calls
-- `models/response_models.py` – Pydantic response schemas
-- `utils/mongodb.py` – db init + ping
-- `utils/settings.py` – environment config
+### Authentication
+- `POST /auth/login` — Redirect to Microsoft OAuth
+- `GET /auth/callback?code=...` — OAuth callback (internal handling)
+- `GET /auth/me` — Get current user profile  
+- `POST /auth/logout` — Clear session cookie
 
-## Production notes
+### Data Pipeline
+- `POST /data/fetch` — Get raw emails/chats from Microsoft Graph
+- `POST /data/sync` — Sync & deduplicate to MongoDB
+- `POST /data/process` — Process, chunk, embed, and index
 
-- Use HTTPS and set `secure=True` on cookie
-- Replace token cookie flow with JWT if needed
-- Add rate limiting and input validation
-- Add background ingestion (delta sync + vector store) in Phase 2
+### Chat & RAG
+- `POST /chat` — Query indexed data with RAG + citations
+
+### Actions
+- `POST /actions/run` — Execute action
+- `GET /actions/models` — Get active LLM provider
+- `POST /agent` — Multi-turn intent routing
+
+### Health
+- `GET /health` → Service status
+- `GET /health/db` → Database connectivity
 
 ---
 
-### Future Phase 2 (optional)
+## Database Schema
 
-- Data ingestion into Mongo with idempotent message upsert
-- Chunking + embeddings for RAG (pgvector / Qdrant / Pinecone)
-- AI endpoint (LLM prompt generation + "action engine")
-- RBAC and multi-user isolation
+### `messages` Collection
+- `user_id`, `source` (outlook|teams), `message_id`, `content`
+- `metadata`: participants, subject, team info, chunk indices
+- **Unique Index**: `(user_id, source, message_id, metadata.chunk_index)` (sparse)
+
+### `users` Collection
+- `userPrincipalName`, `mail`, `displayName`, `token`, `created_at`
+
+---
+
+## Troubleshooting
+
+**Chat not using my data?**
+- Verify `/data/fetch` returns emails/messages
+- Verify `/data/process` shows `documents_saved > 0`
+- Confirm `/auth/me` returns valid user
+
+**Embeddings failing?**
+- Tier 1 (OpenAI) → Tier 2 (Gemini) → Tier 3 (local)
+- Check logs for which tier was used
+
+**MongoDB E11000 errors?**
+```bash
+db.messages.deleteMany({source: null})
+db.messages.dropIndex("uniq_user_source_message")
+# Then re-run /data/process
+```
+
+---
+
+## Project Structure
+
+```
+work-intelligence-hub/
+├── backend/
+│   ├── routes/ (auth, chat, actions, data)
+│   ├── services/ (llm, rag, embedding, processor, vector_store, graph_api)
+│   ├── db/ (mongodb)
+│   └── main.py
+├── src/
+│   ├── pages/ (Login, Dashboard, AIChat, Actions, DataSources)
+│   └── components/
+└── README.md
+```
+
+---
+
+## Roadmap
+
+- [ ] Persistent vector DB (Pinecone/Weaviate)
+- [ ] Multi-turn conversation memory
+- [ ] Google Workspace integration
+- [ ] Calendar analytics
+
+---
+
+## License
+
+Proprietary — Artesian Technologies 2026
+
+---
+
+**Last Updated**: March 30, 2026  
+**Version**: 1.0.0  
+**Status**: Production-Ready

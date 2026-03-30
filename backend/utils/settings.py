@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str | None = None
     OPENAI_EMBEDDING_MODEL: str = "text-embedding-3-small"
     GEMINI_EMBEDDING_MODEL: str = "text-embedding-004"
+    GROQ_API_KEY: str | None = None
+    GROQ_MODEL: str = "qwen/qwen3-32b"
 
     class Config:
         env_file = ".env"

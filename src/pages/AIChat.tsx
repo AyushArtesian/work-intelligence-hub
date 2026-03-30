@@ -22,11 +22,28 @@ const AIChat = () => {
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [expandedSources, setExpandedSources] = useState<number | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isTyping]);
+
+  useEffect(() => {
+    fetch("/api/auth/me", {
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    })
+      .then(async (res) => {
+        if (!res.ok) return null;
+        const user = await res.json();
+        const resolved = user?.mail || user?.userPrincipalName || user?.id || null;
+        setUserId(resolved);
+      })
+      .catch(() => setUserId(null));
+  }, []);
 
   const sendMessage = async () => {
     if (!input.trim()) return;
@@ -36,18 +53,19 @@ const AIChat = () => {
     setIsTyping(true);
 
     try {
-      const conversationHistory = messages
-        .filter((msg) => msg.id !== 1) // Exclude initial greeting
-        .map((msg) => ({ role: msg.role, content: msg.content }));
+      if (!userId) {
+        throw new Error("User context not loaded yet. Please retry in a moment.");
+      }
 
-      const response = await fetch("/api/chat/send", {
+      const response = await fetch("/api/chat", {
         method: "POST",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          message: input,
-          conversation_history: conversationHistory,
+          query: input,
+          user_id: userId,
         }),
       });
 
@@ -56,10 +74,18 @@ const AIChat = () => {
       }
 
       const data = await response.json();
+      const sourceLabels = Array.isArray(data.sources)
+        ? data.sources.map((s: { source?: string; content?: string }) => {
+            const source = s?.source || "unknown";
+            const snippet = (s?.content || "").trim();
+            return snippet ? `${source}: ${snippet}` : source;
+          })
+        : undefined;
       const assistantMsg: Message = {
         id: Date.now() + 1,
         role: "assistant",
-        content: data.message,
+        content: data.answer || "I don't have enough information.",
+        sources: sourceLabels,
       };
       setMessages((prev) => [...prev, assistantMsg]);
     } catch (error) {

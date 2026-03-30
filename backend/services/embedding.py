@@ -18,10 +18,18 @@ def generate_embedding(text: str) -> List[float]:
         return [0.0] * FALLBACK_DIMENSION
 
     if getattr(settings, "OPENAI_API_KEY", None):
-        return _embed_openai(normalized)
+        try:
+            return _embed_openai(normalized)
+        except HTTPException:
+            # OpenAI failed; fall through to next provider
+            pass
 
     if getattr(settings, "GEMINI_API_KEY", None):
-        return _embed_gemini(normalized)
+        try:
+            return _embed_gemini(normalized)
+        except HTTPException:
+            # Gemini failed; fall through to local fallback
+            pass
 
     return _embed_local_fallback(normalized)
 

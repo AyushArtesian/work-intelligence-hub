@@ -23,6 +23,56 @@ const actionsList = [
   },
 ];
 
+// Helper function to format result objects into readable text
+const formatResultObject = (obj: any): string => {
+  if (typeof obj === "string") return obj;
+  if (!obj) return "No output generated.";
+  
+  let output = "";
+  
+  // Handle summarize emails response
+  if (obj.action === "summarize_emails") {
+    output += `📧 **Email Summary**\n`;
+    output += `Status: ${obj.status}\n`;
+    if (obj.email_count) output += `Emails analyzed: ${obj.email_count}\n\n`;
+    if (obj.summary) output += obj.summary;
+    return output;
+  }
+  
+  // Handle extract tasks response
+  if (obj.action === "extract_tasks") {
+    output += `✅ **Extracted Tasks**\n`;
+    output += `Status: ${obj.status}\n`;
+    if (obj.task_count) output += `Tasks found: ${obj.task_count}\n\n`;
+    if (obj.tasks && Array.isArray(obj.tasks) && obj.tasks.length > 0) {
+      obj.tasks.forEach((task: any, idx: number) => {
+        output += `${idx + 1}. **${task.task || "Untitled"}**\n`;
+        if (task.deadline) output += `   📅 Deadline: ${task.deadline}\n`;
+        if (task.context) output += `   📝 Context: ${task.context}\n`;
+        if (task.source) output += `   📌 Source: ${task.source}\n`;
+        output += "\n";
+      });
+    } else {
+      output += "No tasks extracted.";
+    }
+    return output;
+  }
+  
+  // Handle generate report response
+  if (obj.action === "generate_report") {
+    output += `📊 **Daily Report**\n`;
+    output += `Status: ${obj.status}\n\n`;
+    if (obj.executive_summary) output += `**Executive Summary**\n${obj.executive_summary}\n\n`;
+    if (obj.priorities) output += `**Priorities**\n${obj.priorities}\n\n`;
+    if (obj.blockers) output += `**Blockers**\n${obj.blockers}\n\n`;
+    if (obj.recommendations) output += `**Recommendations**\n${obj.recommendations}`;
+    return output;
+  }
+  
+  // Fallback: display as formatted JSON
+  return JSON.stringify(obj, null, 2);
+};
+
 const Actions = () => {
   const [running, setRunning] = useState<string | null>(null);
   const [results, setResults] = useState<Record<string, string>>({});
@@ -46,7 +96,12 @@ const Actions = () => {
         throw new Error(payload?.detail || "Action failed");
       }
 
-      setResults((prev) => ({ ...prev, [id]: payload.result || "No output generated." }));
+      // Convert result (object/string) to formatted display string
+      const resultStr = typeof payload.result === "string" 
+        ? payload.result 
+        : formatResultObject(payload.result);
+      
+      setResults((prev) => ({ ...prev, [id]: resultStr || "No output generated." }));
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to run action";
       setError(msg);

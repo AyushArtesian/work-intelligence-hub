@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 from html import unescape
 from typing import Any
 
+from pymongo.errors import DuplicateKeyError
+
 from db.mongodb import get_messages_collection
 from services.embedding import generate_embedding
 from services.graph_api import get_chat_messages, get_chats, get_emails, get_user_profile
@@ -148,9 +150,13 @@ def fetch_and_process(user_id: str | None, access_token: str) -> dict[str, Any]:
     for doc in processed_docs:
         identity_filter = _document_identity_filter(doc)
         update = {"$setOnInsert": doc}
-        result = messages_collection.update_one(identity_filter, update, upsert=True)
+        try:
+            result = messages_collection.update_one(identity_filter, update, upsert=True)
+        except DuplicateKeyError:
+            # Another matching record already exists (legacy index/race); treat as existing doc.
+            result = None
 
-        if result.upserted_id is not None:
+        if result is not None and result.upserted_id is not None:
             doc_id = str(result.upserted_id)
             saved += 1
         else:

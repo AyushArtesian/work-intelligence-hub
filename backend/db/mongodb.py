@@ -53,10 +53,27 @@ def _ensure_collections(db: Database) -> None:
 
     messages = db["messages"]
     
-    # Handle unique index on message_id + user_id + source with graceful error handling
+    # Keep one unique row per message chunk for each user/source.
+    desired_unique_index = [
+        ("user_id", 1),
+        ("source", 1),
+        ("message_id", 1),
+        ("metadata.chunk_index", 1),
+    ]
+
+    # Remove legacy unique index that does not include chunk index.
+    try:
+        index_info = messages.index_information()
+        legacy = index_info.get("uniq_user_source_message")
+        if legacy and legacy.get("key") != desired_unique_index:
+            messages.drop_index("uniq_user_source_message")
+    except Exception:
+        pass
+
+    # Handle unique index creation with graceful error handling
     try:
         messages.create_index(
-            [("user_id", 1), ("source", 1), ("message_id", 1)],
+            desired_unique_index,
             unique=True,
             sparse=True,
             name="uniq_user_source_message",
@@ -76,7 +93,7 @@ def _ensure_collections(db: Database) -> None:
             # Try again
             try:
                 messages.create_index(
-                    [("user_id", 1), ("source", 1), ("message_id", 1)],
+                    desired_unique_index,
                     unique=True,
                     sparse=True,
                     name="uniq_user_source_message",

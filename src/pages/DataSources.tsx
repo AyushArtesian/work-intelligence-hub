@@ -59,6 +59,71 @@ const initialSources: DataSource[] = [
 const DataSources = () => {
   const [sources, setSources] = useState<DataSource[]>(initialSources);
   const [syncing, setSyncing] = useState<string | null>(null);
+  const [fetching, setFetching] = useState(false);
+  const [processing, setProcessing] = useState(false);
+
+  const handleFetch = async () => {
+    setFetching(true);
+    try {
+      const response = await fetch("http://localhost:8000/data/fetch", {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        const emailsFetched = Array.isArray(result.emails) ? result.emails.length : 0;
+        const messagesFetched = Array.isArray(result.messages)
+          ? result.messages.reduce((total: number, group: any) => {
+              const groupMsgs = Array.isArray(group?.messages) ? group.messages.length : 0;
+              return total + groupMsgs;
+            }, 0)
+          : 0;
+        console.log("Fetch successful:", result);
+        alert(`Fetched data successfully!\nEmails: ${emailsFetched}\nMessages: ${messagesFetched}`);
+      } else {
+        const error = await response.json();
+        throw new Error(error.detail || "Fetch failed");
+      }
+    } catch (error) {
+      console.error("Fetch error:", error);
+      alert(`Error fetching data: ${error instanceof Error ? error.message : "Unknown error"}`);
+    } finally {
+      setFetching(false);
+    }
+  };
+
+  const handleProcess = async () => {
+    setProcessing(true);
+    try {
+      const response = await fetch("http://localhost:8000/data/process", {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        const docsSaved = result.documents_saved || 0;
+        const docsIndexed = result.documents_indexed || 0;
+        console.log("Process successful:", result);
+        alert(`Processed data successfully!\nDocuments saved: ${docsSaved}\nDocuments indexed: ${docsIndexed}`);
+      } else {
+        const error = await response.json();
+        throw new Error(error.detail || "Process failed");
+      }
+    } catch (error) {
+      console.error("Process error:", error);
+      alert(`Error processing data: ${error instanceof Error ? error.message : "Unknown error"}`);
+    } finally {
+      setProcessing(false);
+    }
+  };
 
   const handleSync = async (sourceName: string) => {
     setSyncing(sourceName);
@@ -99,6 +164,34 @@ const DataSources = () => {
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}>
         <h1 className="text-2xl font-bold text-foreground">Data Sources</h1>
         <p className="text-sm text-muted-foreground mt-1">Manage your connected services and data integrations.</p>
+      </motion.div>
+
+      {/* Pipeline Actions */}
+      <motion.div 
+        initial={{ opacity: 0, y: 12 }} 
+        animate={{ opacity: 1, y: 0 }}
+        className="glass-card p-4 border border-border"
+      >
+        <p className="text-xs font-semibold text-muted-foreground mb-3 uppercase">Data Pipeline</p>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={handleFetch}
+            disabled={fetching}
+            className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-medium text-foreground hover:bg-accent transition-all disabled:opacity-50 active:scale-95"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${fetching ? "animate-spin" : ""}`} />
+            {fetching ? "Fetching..." : "1. Fetch Data"}
+          </button>
+          <button
+            onClick={handleProcess}
+            disabled={processing}
+            className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-medium text-foreground hover:bg-accent transition-all disabled:opacity-50 active:scale-95"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${processing ? "animate-spin" : ""}`} />
+            {processing ? "Processing..." : "2. Process & Index"}
+          </button>
+          <span className="px-3 py-2 text-xs text-muted-foreground">→ Then sync your sources below</span>
+        </div>
       </motion.div>
 
       <div className="space-y-4">
