@@ -1,11 +1,11 @@
 import logging
 from datetime import datetime, timedelta
 
-from fastapi import APIRouter, Body, Header, Query, HTTPException, status, Request
+from fastapi import APIRouter, Body, Header, Query, HTTPException, status, Request, BackgroundTasks
 from pydantic import BaseModel
 
 from services.graph_api import get_user_profile, get_emails, get_chats, get_chat_messages
-from services.processor import fetch_and_process
+from services.processor import fetch_and_process, process_and_store_raw_data
 from services.llm import generate_json
 from models.response_models import DataResponse
 from utils.mongodb import get_db
@@ -33,11 +33,12 @@ def _resolve_access_token(authorization: str | None, access_token: str | None) -
 
 @router.post("/fetch", response_model=DataResponse)
 def fetch_data(
-    request: Request, authorization: str | None = Header(None), access_token: str | None = Query(None)
+    request: Request, background_tasks: BackgroundTasks, authorization: str | None = Header(None), access_token: str | None = Query(None)
 ):
     """
     Fetches latest user profile, emails, chats, and chat messages from Microsoft Graph.
     Returns data ordered by most recent first (latest data).
+    Persistence (storage/indexing) runs in background to avoid blocking response.
     """
     # Get token from query param first, then cookie, then Authorization header
     token = access_token
@@ -57,13 +58,21 @@ def fetch_data(
     chats_items = chats.get("value", [])
     
     messages = []
+    flat_messages = []
     for chat in chats_items:
         chat_id = chat.get("id")
         if chat_id:
             try:
                 # Fetch up to 50 latest messages per chat (Teams API max is 50, ordered by createdDateTime desc)
                 chat_messages = get_chat_messages(token, chat_id, top=50)
-                messages.append({"chat_id": chat_id, "messages": chat_messages.get("value", [])})
+                grouped_messages = chat_messages.get("value", [])
+                messages.append({"chat_id": chat_id, "messages": grouped_messages})
+
+                for msg in grouped_messages:
+                    if isinstance(msg, dict):
+                        msg_with_chat = dict(msg)
+                        msg_with_chat["chat_id"] = chat_id
+                        flat_messages.append(msg_with_chat)
             except Exception as exc:
                 logger.warning(f"Failed to fetch messages from chat {chat_id}: {exc}")
                 continue
@@ -84,6 +93,19 @@ def fetch_data(
         except Exception as exc:
             # do not fail the endpoint for DB issues; log for developer
             logger.warning(f"Unable to write fetch_history: {exc}")
+
+    user_id = user.get("mail") or user.get("userPrincipalName") or user.get("id")
+    if user_id:
+        # Schedule persistence in background so fetch response returns immediately
+        background_tasks.add_task(
+            process_and_store_raw_data,
+            raw_data={
+                "emails": emails.get("value", []),
+                "chats": chats_items,
+                "messages": flat_messages,
+            },
+            user_id=user_id,
+        )
 
     return {
         "user": user,

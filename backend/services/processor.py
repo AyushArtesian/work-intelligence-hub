@@ -144,7 +144,12 @@ def fetch_and_process(user_id: str | None, access_token: str, since: str | None 
             all_messages.append(msg)
 
     raw_data = {"emails": emails, "chats": chats, "messages": all_messages}
-    processed_docs = process_messages(raw_data=raw_data, user_id=resolved_user_id)
+    return process_and_store_raw_data(raw_data=raw_data, user_id=resolved_user_id)
+
+
+def process_and_store_raw_data(raw_data: dict[str, Any], user_id: str) -> dict[str, Any]:
+    """Process already-fetched raw payload and persist it into MongoDB/vector index."""
+    processed_docs = process_messages(raw_data=raw_data, user_id=user_id)
 
     messages_collection = get_messages_collection()
     if messages_collection is None:
@@ -171,17 +176,25 @@ def fetch_and_process(user_id: str | None, access_token: str, since: str | None 
                 continue
             doc_id = str(existing["_id"])
 
-        embedding = generate_embedding(doc["content"])
-        add_embedding(doc_id=doc_id, embedding=embedding)
-        indexed += 1
+        try:
+            embedding = generate_embedding(doc["content"])
+            add_embedding(doc_id=doc_id, embedding=embedding)
+            indexed += 1
+        except Exception as exc:
+            logger.warning(
+                "Embedding/indexing failed for doc_id=%s user=%s: %s",
+                doc_id,
+                user_id,
+                exc,
+            )
 
-    logger.info("Data process completed user=%s saved=%s indexed=%s", resolved_user_id, saved, indexed)
+    logger.info("Data process completed user=%s saved=%s indexed=%s", user_id, saved, indexed)
 
     return {
         "status": "processed",
         "documents_saved": saved,
         "documents_indexed": indexed,
-        "user_id": resolved_user_id,
+        "user_id": user_id,
     }
 
 
