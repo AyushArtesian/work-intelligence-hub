@@ -1,10 +1,12 @@
 import logging
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Body, Header, Query, HTTPException, status, Request
 from pydantic import BaseModel
 
 from services.graph_api import get_user_profile, get_emails, get_chats, get_chat_messages
 from services.processor import fetch_and_process
+from services.llm import generate_json
 from models.response_models import DataResponse
 from utils.mongodb import get_db
 
@@ -33,7 +35,10 @@ def _resolve_access_token(authorization: str | None, access_token: str | None) -
 def fetch_data(
     request: Request, authorization: str | None = Header(None), access_token: str | None = Query(None)
 ):
-    """Fetches user profile, emails, chats, and chat messages from Microsoft Graph."""
+    """
+    Fetches latest user profile, emails, chats, and chat messages from Microsoft Graph.
+    Returns data ordered by most recent first (latest data).
+    """
     # Get token from query param first, then cookie, then Authorization header
     token = access_token
     if not token:
@@ -42,19 +47,26 @@ def fetch_data(
         token = _resolve_access_token(authorization, access_token)
 
     user = get_user_profile(token)
-    emails = get_emails(token)
-    chats = get_chats(token)
+    # Fetch up to 100 latest emails (ordered by receivedDateTime desc)
+    emails = get_emails(token, top=100)
+    # Fetch up to 50 latest chats
+    chats = get_chats(token, top=50)
 
-    # for simplicity fetch messages from 1-2 recent chats
+    # Fetch messages from ALL available chats (not just first 2)
+    # This ensures we get messages from all teams conversations
     chats_items = chats.get("value", [])
-    chat_picks = chats_items[:2]
-
+    
     messages = []
-    for chat in chat_picks:
+    for chat in chats_items:
         chat_id = chat.get("id")
         if chat_id:
-            chat_messages = get_chat_messages(token, chat_id)
-            messages.append({"chat_id": chat_id, "messages": chat_messages.get("value", [])})
+            try:
+                # Fetch up to 50 latest messages per chat (Teams API max is 50, ordered by createdDateTime desc)
+                chat_messages = get_chat_messages(token, chat_id, top=50)
+                messages.append({"chat_id": chat_id, "messages": chat_messages.get("value", [])})
+            except Exception as exc:
+                logger.warning(f"Failed to fetch messages from chat {chat_id}: {exc}")
+                continue
 
     # attempt to store a fetch record for debugging/connection verification
     db = get_db()
@@ -66,11 +78,12 @@ def fetch_data(
                     "timestamp": __import__("datetime").datetime.utcnow(),
                     "emails_count": len(emails.get("value", [])),
                     "chats_count": len(chats_items),
+                    "total_messages": sum(len(m.get("messages", [])) for m in messages),
                 }
             )
         except Exception as exc:
             # do not fail the endpoint for DB issues; log for developer
-            print("[WARNING] Unable to write fetch_history", exc)
+            logger.warning(f"Unable to write fetch_history: {exc}")
 
     return {
         "user": user,
@@ -91,22 +104,22 @@ def fetch_data_get(
 @router.post("/sync")
 def sync_data(request: Request, authorization: str | None = Header(None), access_token: str | None = Query(None)):
     """
-    Syncs data from Microsoft Graph: fetches emails/chats, processes them, chunks them,
-    generates embeddings, and indexes them for RAG. Complete end-to-end pipeline.
+    Syncs data from Microsoft Graph: fetches ONLY NEW emails/chats, processes them, chunks them,
+    generates embeddings, and indexes them for RAG. Incremental sync based on last_sync_timestamp.
     """
+    # Token resolution: query param → cookie → Authorization header
     token = access_token
     if not token:
         token = request.cookies.get("work_intel_access_token")
-    if not token:
-        if authorization:
-            parts = authorization.split()
-            if len(parts) == 2 and parts[0].lower() == "bearer":
-                token = parts[1]
+    if not token and authorization:
+        parts = authorization.split()
+        if len(parts) == 2 and parts[0].lower() == "bearer":
+            token = parts[1]
     
     if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing access token",
+            detail="Missing access token. Ensure you're logged in. Provide in Authorization header, cookie, or access_token query param.",
         )
 
     try:
@@ -115,15 +128,37 @@ def sync_data(request: Request, authorization: str | None = Header(None), access
         if not user_id:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unable to resolve user id")
 
-        # Run the complete fetch+process pipeline
-        result = fetch_and_process(user_id=user_id, access_token=token)
+        # Get user's last sync timestamp from MongoDB
+        db = get_db()
+        last_sync_doc = None
+        since_timestamp = None
+        if db is not None:
+            last_sync_doc = db.users.find_one({"user_id": user_id})
+            if last_sync_doc and last_sync_doc.get("last_sync_timestamp"):
+                since_timestamp = last_sync_doc["last_sync_timestamp"]
+        
+        # Run the complete fetch+process pipeline with incremental filtering
+        result = fetch_and_process(user_id=user_id, access_token=token, since=since_timestamp)
+        
+        # Update user's last_sync_timestamp
+        sync_timestamp = __import__("datetime").datetime.utcnow().isoformat()
+        if db is not None:
+            try:
+                db.users.update_one(
+                    {"user_id": user_id},
+                    {"$set": {"last_sync_timestamp": sync_timestamp}},
+                    upsert=True
+                )
+            except Exception as exc:
+                logger.warning(f"Failed to update last_sync_timestamp: {exc}")
         
         return {
             "status": "success",
             "user_id": user_id,
             "documents_saved": result.get("documents_saved", 0),
             "documents_indexed": result.get("documents_indexed", 0),
-            "timestamp": __import__("datetime").datetime.utcnow().isoformat(),
+            "is_incremental": since_timestamp is not None,
+            "last_sync_timestamp": sync_timestamp,
         }
     
     except HTTPException:
@@ -143,11 +178,20 @@ def process_data(
     authorization: str | None = Header(None),
     access_token: str | None = Query(None),
 ):
+    # Token resolution: query param → body payload → cookie → Authorization header
     token = access_token or (payload.access_token if payload else None)
     if not token:
         token = request.cookies.get("work_intel_access_token")
+    if not token and authorization:
+        parts = authorization.split()
+        if len(parts) == 2 and parts[0].lower() == "bearer":
+            token = parts[1]
+    
     if not token:
-        token = _resolve_access_token(authorization, access_token)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing access token. Ensure you're logged in. Provide in Authorization header, cookie, or access_token query param.",
+        )
 
     user = get_user_profile(token)
     user_id = user.get("mail") or user.get("userPrincipalName") or user.get("id")
@@ -166,3 +210,109 @@ def process_data(
     except Exception as exc:
         logger.exception("Data processing failed")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Data processing failed: {exc}")
+
+
+@router.post("/insights")
+def generate_insights(
+    request: Request,
+    authorization: str | None = Header(None),
+    access_token: str | None = Query(None),
+):
+    """
+    Generates AI-powered insights from user's messages.
+    Returns: Weekly summary, key decisions, risks identified, and trends.
+    """
+    # Token resolution
+    token = access_token
+    if not token:
+        token = request.cookies.get("work_intel_access_token")
+    if not token and authorization:
+        parts = authorization.split()
+        if len(parts) == 2 and parts[0].lower() == "bearer":
+            token = parts[1]
+    
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing access token.",
+        )
+
+    try:
+        user = get_user_profile(token)
+        user_id = user.get("mail") or user.get("userPrincipalName") or user.get("id")
+        if not user_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unable to resolve user id")
+
+        # Get messages from past 7 days
+        db = get_db()
+        if db is None:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Database unavailable",
+            )
+
+        seven_days_ago = datetime.utcnow() - timedelta(days=7)
+        messages = list(db.messages.find(
+            {
+                "user_id": user_id,
+                "timestamp": {"$gte": seven_days_ago}
+            },
+            {"content": 1, "source": 1, "timestamp": 1, "metadata": 1}
+        ).limit(200))
+
+        if not messages:
+            return {
+                "weekly_summary": [
+                    "No messages found for the past 7 days.",
+                    "Sync your data to generate insights."
+                ],
+                "key_decisions": [],
+                "risks": [],
+                "trends": []
+            }
+
+        # Prepare message content for analysis
+        message_texts = [m.get("content", "") for m in messages]
+        combined_content = "\n".join(message_texts[:100])  # Limit to prevent token overload
+
+        system_prompt = (
+            "You are an AI workplace intelligence analyst. Analyze communication data and generate "
+            "structured insights about work patterns, decisions, risks, and trends. "
+            "Return valid JSON only, no markdown or extra text."
+        )
+
+        user_prompt = f"""Analyze these recent messages and generate structured insights.
+Return a JSON object with exactly these fields:
+- weekly_summary: array of 3-4 strings about overall activity patterns
+- key_decisions: array of 3-4 strings about important decisions made
+- risks: array of 2-3 strings about potential risks or concerns
+- trends: array of 2-3 strings about notable trends or patterns
+
+Messages to analyze:
+{combined_content[:2000]}
+
+Return ONLY valid JSON."""
+
+        insights = generate_json(system_prompt, user_prompt, default={
+            "weekly_summary": [],
+            "key_decisions": [],
+            "risks": [],
+            "trends": []
+        })
+
+        # Ensure all fields exist
+        return {
+            "weekly_summary": insights.get("weekly_summary", []),
+            "key_decisions": insights.get("key_decisions", []),
+            "risks": insights.get("risks", []),
+            "trends": insights.get("trends", [])
+        }
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Insights generation failed")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Insights generation failed: {str(exc)}"
+        )

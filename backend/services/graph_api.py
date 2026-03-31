@@ -25,8 +25,16 @@ def get_user_profile(access_token: str) -> dict:
     return _request("/me", access_token)
 
 
-def get_emails(access_token: str) -> dict:
-    return _request("/me/messages", access_token)
+def get_emails(access_token: str, top: int = 100, since: str | None = None) -> dict:
+    """Fetch emails, ordered by most recent first. If since is provided, only fetch newer emails."""
+    params = {
+        "$orderby": "receivedDateTime desc",
+        "$top": top,
+    }
+    if since:
+        # Filter emails received after 'since' timestamp (ISO 8601 format)
+        params["$filter"] = f"receivedDateTime gt {since}"
+    return _request("/me/messages", access_token, params=params)
 
 
 def get_unread_emails_count(access_token: str) -> int:
@@ -59,9 +67,23 @@ def get_unread_emails_count(access_token: str) -> int:
     return 0
 
 
-def get_chats(access_token: str) -> dict:
-    return _request("/me/chats", access_token)
+def get_chats(access_token: str, top: int = 50) -> dict:
+    """Fetch chats. Note: chats may not support orderby, so we get most recent by default."""
+    params = {
+        "$top": top,
+    }
+    return _request("/me/chats", access_token, params=params)
 
 
-def get_chat_messages(access_token: str, chat_id: str) -> dict:
-    return _request(f"/chats/{chat_id}/messages", access_token)
+def get_chat_messages(access_token: str, chat_id: str, top: int = 50, since: str | None = None) -> dict:
+    """Fetch messages from a chat (max 50), ordered by most recent first. If since is provided, only fetch newer messages."""
+    # Ensure top doesn't exceed 50 (Teams API limitation)
+    top = min(top, 50)
+    params = {
+        "$orderby": "createdDateTime desc",
+        "$top": top,
+    }
+    if since:
+        # Filter messages created after 'since' timestamp (ISO 8601 format)
+        params["$filter"] = f"createdDateTime gt {since}"
+    return _request(f"/chats/{chat_id}/messages", access_token, params=params)

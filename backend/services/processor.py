@@ -118,13 +118,18 @@ def process_messages(raw_data: dict[str, Any], user_id: str) -> list[dict[str, A
     return processed
 
 
-def fetch_and_process(user_id: str | None, access_token: str) -> dict[str, Any]:
+def fetch_and_process(user_id: str | None, access_token: str, since: str | None = None) -> dict[str, Any]:
+    """
+    Fetches and processes emails/chats from Microsoft Graph.
+    If 'since' is provided, only fetches data newer than that timestamp (incremental sync).
+    """
     user_profile = get_user_profile(access_token)
     resolved_user_id = user_id or user_profile.get("mail") or user_profile.get("userPrincipalName") or user_profile.get("id")
     if not resolved_user_id:
         raise ValueError("Unable to resolve user id from profile")
 
-    emails = get_emails(access_token).get("value", [])
+    # Fetch emails (with optional timestamp filter for incremental sync)
+    emails = get_emails(access_token, since=since).get("value", [])
     chats = get_chats(access_token).get("value", [])
 
     all_messages: list[dict[str, Any]] = []
@@ -132,7 +137,8 @@ def fetch_and_process(user_id: str | None, access_token: str) -> dict[str, Any]:
         chat_id = chat.get("id")
         if not chat_id:
             continue
-        msg_payload = get_chat_messages(access_token, chat_id).get("value", [])
+        # Fetch messages with optional timestamp filter for incremental sync
+        msg_payload = get_chat_messages(access_token, chat_id, since=since).get("value", [])
         for msg in msg_payload:
             msg["chat_id"] = chat_id
             all_messages.append(msg)
