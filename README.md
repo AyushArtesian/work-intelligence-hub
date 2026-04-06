@@ -4,6 +4,8 @@ Your AI-powered workplace assistant for intelligent email, chat, and task manage
 
 A comprehensive AI Work Intelligence Hub that transforms emails, Teams chats, and communications into actionable insights using retrieval-augmented generation (RAG), embeddings, and agentic AI.
 
+
+
 **Key Capabilities:**
 - 📊 **Dashboard** - Real-time email and chat counts, pending actions, key insights
 - 📑 **AI-Generated Insights** - Weekly summaries, key decisions, risks, and trends
